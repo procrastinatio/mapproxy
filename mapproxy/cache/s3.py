@@ -117,6 +117,8 @@ class S3Cache(FileCache):
         log.debug('store_tile, location: %s' % location)
 
         k = boto.s3.key.Key(self.bucket)
+        if self.file_ext in ('jpeg', 'png'):
+            k.content_type = 'image/' + self.file_ext
         k.key = location
         with tile_buffer(tile) as buf:
             k.set_contents_from_file(buf)
