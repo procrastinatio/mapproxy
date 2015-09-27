@@ -982,10 +982,11 @@ class CacheConfiguration(ConfigurationBase):
 
         profile_name = self.context.globals.get_value('profile_name', self.conf,
             global_key='cache.s3_profile_name')
-        
+
+
         directory_layout = self.conf.get('cache', {}).get('directory_layout', 'tc')
         g=grid_conf.tile_grid()
-        log.debug("name=%s, srs=%s" %  (g.name, g.srs))
+        log.debug("S3 loader: name=%s, srs=%s" %  (g.name, g.srs))
 
         if cache_dir is None:
             if self.conf.get('cache', {}).get('use_grid_names'):

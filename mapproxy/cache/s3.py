@@ -1,5 +1,6 @@
 from __future__ import with_statement
 
+import os
 from mapproxy.image import ImageSource
 from mapproxy.cache.base import tile_buffer
 from mapproxy.cache.file import FileCache
@@ -14,6 +15,38 @@ import StringIO
 import logging
 log = logging.getLogger('mapproxy.cache.s3')
 
+s3_connection = None
+
+class S3Connection:
+    def __init__(self, profile_name='mapproxy'):
+        if boto is None:
+            raise ImportError("S3 Cache requires 'boto' package.")
+        self.conn = None
+        self.profile_name = profile_name
+
+    def get(self):
+        if self.conn is None:
+            try:
+                self.conn = boto.connect_s3(profile_name=self.profile_name)
+            except Exception as e:
+                raise Error('S3: Error during connection %s' % e)
+        return self.conn
+
+
+
+def get_bucket(profile_name, bucket_name):
+        global s3_connection
+        if s3_connection is None:
+            s3_connection = S3Connection(profile_name=profile_name)
+        try:
+            conn = s3_connection.get()
+            bucket = conn.get_bucket(bucket_name)
+        except boto.exception.S3ResponseError as e:
+            if e.error_code == 'NoSuchBucket':
+                log.error('No such bucket: %s' % bucket_name)
+                raise e
+        return bucket
+               
 
 class S3Cache(FileCache):
 
@@ -28,23 +61,22 @@ class S3Cache(FileCache):
         :param file_ext: the file extension that will be appended to
             each tile (e.g. 'png')
         """
-        if boto is None:
-            raise ImportError("S3 Cache requires 'boto' package.")
-
-        super(S3Cache, self).__init__(cache_dir, file_ext=file_ext, directory_layout=directory_layout, lock_timeout=lock_timeout, link_single_color_images=False)
-
-        if profile_name is not None:
-            self.s3_conn = boto.connect_s3(profile_name=profile_name)
-        else:
-            self.s3_conn = boto.connect_s3()
-
+        global s3_connection
+        
+        if s3_connection is None:
+            s3_connection = S3Connection(profile_name=profile_name)
         try:
-            self.bucket = self.s3_conn.get_bucket(bucket_name)
+            conn = s3_connection.get()
+            self.bucket = conn.get_bucket(bucket_name)
         except boto.exception.S3ResponseError as e:
             if e.error_code == 'NoSuchBucket':
                 log.error('No such bucket: %s' % bucket_name)
                 raise e
-                #self.bucket = self.s3_conn.create_bucket(bucket, location=boto.s3.connection.Location.EU)
+
+
+  
+        super(S3Cache, self).__init__(cache_dir, file_ext=file_ext, directory_layout=directory_layout, lock_timeout=lock_timeout, link_single_color_images=False)
+
 
     def load_tile_metadata(self, tile):
         # TODO Implement storing / retrieving tile metadata
@@ -58,13 +90,14 @@ class S3Cache(FileCache):
         if tile.is_missing():
 
             location = self.tile_location(tile)
-            log.debug('is_cached, location: %s' % location)
 
             k = boto.s3.key.Key(self.bucket)
             k.key = location
             if k.exists():
+                log.debug('S3: cache HIT, location: %s' % location)
                 return True
             else:
+                log.debug('S3: cache MISS, location: %s' % location)
                 return False
         else:
             return True
@@ -78,7 +111,7 @@ class S3Cache(FileCache):
             return True
 
         location = self.tile_location(tile)
-        log.debug('load_tile, location: %s' % location)
+        log.debug('S3:load_tile, location: %s' % location)
 
         tile_data = StringIO.StringIO()
         k = boto.s3.key.Key(self.bucket)
@@ -114,7 +147,7 @@ class S3Cache(FileCache):
             return
 
         location = self.tile_location(tile)
-        log.debug('store_tile, location: %s' % location)
+        log.debug('S3: store_tile, location: %s' % location)
 
         k = boto.s3.key.Key(self.bucket)
         if self.file_ext in ('jpeg', 'png'):
